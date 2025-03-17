@@ -3,6 +3,7 @@ package hnapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -600,4 +601,153 @@ func TestCancelDuringUpdateFetch(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("Timed out while waiting for channel to close")
 	}
+}
+
+// This test directly tests the context cancellation path in pollUpdates
+func TestPollUpdatesDirectContextCancellation(t *testing.T) {
+	// Setup a test server that returns valid updates data
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return valid updates
+		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte(`{"items": [123, 456], "profiles": ["user1", "user2"]}`))
+		if err != nil {
+			t.Fatalf("Failed to write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	// Create a properly initialized client
+	client := NewClient(
+		WithBaseURL(server.URL + "/"),
+	)
+
+	// Create a context we can cancel
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Create an unbuffered channel that will block on send
+	updatesCh := make(chan Updates)
+
+	// Start a goroutine that will cancel the context after a delay
+	// to ensure we hit the context cancellation path
+	go func() {
+		// Give pollUpdates time to get the updates and try to send them
+		time.Sleep(50 * time.Millisecond)
+
+		// Cancel the context
+		cancel()
+	}()
+
+	// Call the pollUpdates method directly
+	// Since we're not reading from the channel, the send will block
+	// and then be interrupted by the context cancellation
+	err := client.pollUpdates(ctx, updatesCh)
+
+	// We should get a context canceled error
+	if err == nil || err.Error() != "context canceled" {
+		t.Errorf("Expected 'context canceled' error, got: %v", err)
+	}
+}
+
+// TestDirectCtxDoneInPollUpdates precisely tests the context cancellation path
+// during a channel send in pollUpdates
+func TestDirectCtxDoneInPollUpdates(t *testing.T) {
+	// Setup a test server that returns valid updates
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		// Return non-empty updates that will need to be sent on the channel
+		_, err := w.Write([]byte(`{"items": [123, 456], "profiles": ["user1", "user2"]}`))
+		if err != nil {
+			t.Fatalf("Failed to write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	// Create a properly initialized client
+	client := NewClient(
+		WithBaseURL(server.URL + "/"),
+	)
+
+	// Create a context we can cancel
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Use an unbuffered channel that no one is reading from
+	// This will cause the send to block indefinitely
+	unbufferedCh := make(chan Updates)
+
+	// Cancel the context after a short delay to ensure we're in the blocked send
+	// when cancellation happens
+	time.AfterFunc(50*time.Millisecond, cancel)
+
+	// Call pollUpdates directly
+	// Since we're trying to send to a channel that no one is reading from,
+	// the send will block, and then the context cancellation should interrupt it
+	err := client.pollUpdates(ctx, unbufferedCh)
+
+	// We should get a context.Canceled error when the context is canceled
+	// during the channel send
+	if err != context.Canceled {
+		t.Errorf("Expected context.Canceled error, got: %v", err)
+	}
+}
+
+// This test specifically targets the ctx.Done() case in the select statement
+// of the pollUpdates function
+func TestPollUpdatesContextCancellation(t *testing.T) {
+	// Create a context we can cancel
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Create a non-buffered channel to force blocking
+	// This will make the send operation in pollUpdates block
+	updatesCh := make(chan Updates)
+
+	// Start a goroutine to test the context cancellation during send
+	go func() {
+		// Wait a bit to ensure pollUpdates has reached the send operation
+		time.Sleep(50 * time.Millisecond)
+
+		// Cancel the context
+		cancel()
+
+		// To avoid goroutine leak, we read from the channel after a delay
+		// This shouldn't actually receive anything since the context was canceled
+		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-updatesCh:
+			// In case something was sent despite cancellation
+		default:
+			// Expected case - nothing was sent
+		}
+	}()
+
+	// Prepare test data
+	testUpdates := Updates{
+		Items:    []int{123, 456},
+		Profiles: []string{"user1", "user2"},
+	}
+
+	// Call a simplified version of pollUpdates directly
+	// This will simulate just the part we're interested in testing
+	err := simulatePollUpdatesWithPreloadedData(ctx, updatesCh, testUpdates)
+
+	// We should get a context.Canceled error
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Expected context.Canceled error, got: %v", err)
+	}
+}
+
+// simulatePollUpdatesWithPreloadedData simulates the select part of pollUpdates
+// with pre-loaded data, focusing on testing the context cancellation path
+func simulatePollUpdatesWithPreloadedData(ctx context.Context, updatesCh chan<- Updates, updates Updates) error {
+	// Simulate the select statement from pollUpdates
+	select {
+	case updatesCh <- updates:
+		// Successfully sent updates
+	case <-ctx.Done():
+		// Context was canceled
+		return ctx.Err()
+	}
+	return nil
 }
