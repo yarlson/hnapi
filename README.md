@@ -100,7 +100,7 @@ func main() {
 - **WithBackoffInterval(interval time.Duration):** Set the backoff interval between retries. (Default: 2 seconds)
 - **WithPollInterval(interval time.Duration):** Set the polling interval for real-time updates. (Default: 30 seconds)
 - **WithConcurrency(concurrency int):** Set the concurrency limit for batch retrieval. (Default: 10)
-- **WithHTTPClient(client *http.Client):** Inject a custom HTTP client for advanced use cases.
+- **WithHTTPClient(client \*http.Client):** Inject a custom HTTP client for advanced use cases.
 
 Example:
 
