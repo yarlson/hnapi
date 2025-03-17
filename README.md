@@ -1,7 +1,7 @@
-# hnapi
+# Hacker News API SDK for Go
 
 [![GoDoc](https://godoc.org/github.com/yarlson/hnapi?status.svg)](https://godoc.org/github.com/yarlson/hnapi)
-[![Build Status](https://travis-ci.org/yarlson/hnapi.svg?branch=master)](https://travis-ci.org/yarlson/hnapi)
+[![CI](https://github.com/yarlson/hnapi/actions/workflows/ci.yml/badge.svg)](https://github.com/yarlson/hnapi/actions/workflows/ci.yml)
 
 **hnapi** is a Go SDK for interacting with the [Hacker News API](https://github.com/HackerNews/API). It provides an easy-to-use interface to retrieve stories, comments, jobs, polls, and user profiles. The package also offers helper functions for batch retrieval and a real-time updates mechanism using Go channels.
 
