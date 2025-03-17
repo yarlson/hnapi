@@ -49,10 +49,4 @@ jobs:
 
       # Test step with coverage
       - name: Test with coverage
-        run: go test -v -coverprofile=coverage.out -covermode=atomic ./...
-
-      - name: Upload coverage report
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage.out
-          fail_ci_if_error: false
+        run: go test -v ./...
