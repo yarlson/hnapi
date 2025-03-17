@@ -39,6 +39,53 @@ func (c *Client) GetUser(ctx context.Context, username string) (*User, error) {
 	return &user, nil
 }
 
+// GetTopStories retrieves the current top stories from Hacker News.
+// It returns a slice of story IDs or an error if the request fails or the context is canceled.
+func (c *Client) GetTopStories(ctx context.Context) ([]int, error) {
+	return c.getStories(ctx, "topstories.json")
+}
+
+// GetNewStories retrieves the newest stories from Hacker News.
+// It returns a slice of story IDs or an error if the request fails or the context is canceled.
+func (c *Client) GetNewStories(ctx context.Context) ([]int, error) {
+	return c.getStories(ctx, "newstories.json")
+}
+
+// GetBestStories retrieves the best stories from Hacker News.
+// It returns a slice of story IDs or an error if the request fails or the context is canceled.
+func (c *Client) GetBestStories(ctx context.Context) ([]int, error) {
+	return c.getStories(ctx, "beststories.json")
+}
+
+// GetAskStories retrieves the Ask HN stories from Hacker News.
+// It returns a slice of story IDs or an error if the request fails or the context is canceled.
+func (c *Client) GetAskStories(ctx context.Context) ([]int, error) {
+	return c.getStories(ctx, "askstories.json")
+}
+
+// GetShowStories retrieves the Show HN stories from Hacker News.
+// It returns a slice of story IDs or an error if the request fails or the context is canceled.
+func (c *Client) GetShowStories(ctx context.Context) ([]int, error) {
+	return c.getStories(ctx, "showstories.json")
+}
+
+// GetJobStories retrieves the job stories from Hacker News.
+// It returns a slice of story IDs or an error if the request fails or the context is canceled.
+func (c *Client) GetJobStories(ctx context.Context) ([]int, error) {
+	return c.getStories(ctx, "jobstories.json")
+}
+
+// getStories is a helper function that retrieves story IDs from a specific endpoint.
+// It is used by GetTopStories, GetNewStories, etc.
+func (c *Client) getStories(ctx context.Context, endpoint string) ([]int, error) {
+	var storyIDs []int
+	if err := c.makeRequest(ctx, endpoint, &storyIDs); err != nil {
+		return nil, fmt.Errorf("failed to get stories from %s: %w", endpoint, err)
+	}
+
+	return storyIDs, nil
+}
+
 // makeRequest performs an HTTP GET request to the specified endpoint and unmarshals the response into the target.
 // It uses the client's configuration for the base URL and timeout.
 func (c *Client) makeRequest(ctx context.Context, endpoint string, target interface{}) error {
