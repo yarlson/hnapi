@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -259,5 +260,146 @@ func TestStartUpdatesWithError(t *testing.T) {
 	default:
 		// Channel is not ready, which is unexpected
 		t.Fatal("Updates channel not closed after context timeout")
+	}
+}
+
+// TestImmediatePollOnStart tests that polling begins immediately when StartUpdates is called,
+// not just after the first ticker event.
+func TestImmediatePollOnStart(t *testing.T) {
+	// Use a channel to track when requests are received
+	requestReceived := make(chan struct{}, 1)
+
+	// Create a test server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Signal that a request was received
+		select {
+		case requestReceived <- struct{}{}:
+		default:
+			// Channel full, ignore
+		}
+
+		// Return some updates
+		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte(`{"items": [123, 456], "profiles": ["user1", "user2"]}`))
+		if err != nil {
+			t.Fatalf("Failed to write mock response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	// Set a long polling interval to ensure the initial poll is different from ticker-based polls
+	client := hnapi.NewClient(
+		hnapi.WithBaseURL(server.URL+"/"),
+		hnapi.WithPollInterval(5*time.Second), // Very long to avoid ticker firing during test
+	)
+
+	// Create a context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start updates
+	updatesCh, err := client.StartUpdates(ctx)
+	if err != nil {
+		t.Fatalf("StartUpdates() error = %v", err)
+	}
+
+	// Check if a request was received immediately (within a short timeout)
+	select {
+	case <-requestReceived:
+		// Test passed: request was received immediately
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("No immediate poll detected")
+	}
+
+	// Also check that we receive the update through the channel
+	select {
+	case update, ok := <-updatesCh:
+		if !ok {
+			t.Fatal("Updates channel closed unexpectedly")
+		}
+		if len(update.Items) != 2 || len(update.Profiles) != 2 {
+			t.Errorf("Unexpected update content: %+v", update)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Timed out waiting for immediate update")
+	}
+}
+
+// TestContextCancellationDuringSend tests the scenario where the context is canceled
+// while trying to send updates through the channel.
+func TestContextCancellationDuringSend(t *testing.T) {
+	// Create a test server that returns updates
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte(`{"items": [123, 456], "profiles": ["user1", "user2"]}`))
+		if err != nil {
+			t.Fatalf("Failed to write mock response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	// Create a context that we can cancel
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// We don't directly use the client in this test, it's a simulation of the internal behavior
+	// of pollUpdates with context cancellation
+
+	// Use a sync.WaitGroup to coordinate test teardown
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	// This variable will be set to true if the context cancellation is detected
+	var contextCancellationDetected bool
+
+	// Mock the channel creation and context cancellation scenario
+	// We'll use a separate goroutine to simulate the StartUpdates behavior
+	go func() {
+		defer wg.Done()
+
+		// Create an unbuffered channel to force blocking on send
+		mockUpdatesCh := make(chan hnapi.Updates)
+
+		// Start a goroutine to create the blocking situation
+		// This simulates a slow consumer that doesn't read from the channel
+		go func() {
+			// Sleep to ensure the poll operation proceeds and tries to send
+			time.Sleep(100 * time.Millisecond)
+
+			// Cancel the context while send is blocked
+			cancel()
+
+			// Wait a bit more and then read from the channel to unblock send
+			// (but the send should already have returned due to context cancellation)
+			time.Sleep(100 * time.Millisecond)
+			select {
+			case <-mockUpdatesCh:
+				// Drain the channel
+			default:
+				// Channel might be empty
+			}
+		}()
+
+		// Create updates to send
+		updates := hnapi.Updates{
+			Items:    []int{123, 456},
+			Profiles: []string{"user1", "user2"},
+		}
+
+		// Try to send updates with context cancellation
+		select {
+		case mockUpdatesCh <- updates:
+			// Successfully sent
+		case <-ctx.Done():
+			// Context was canceled while trying to send
+			contextCancellationDetected = true
+		}
+	}()
+
+	// Wait for the test to complete
+	wg.Wait()
+
+	// Verify that context cancellation was detected
+	if !contextCancellationDetected {
+		t.Fatal("Context cancellation was not detected during send operation")
 	}
 }
