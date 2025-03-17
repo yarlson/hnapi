@@ -257,7 +257,9 @@ func TestContextCancellation(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 		item := &hnapi.Item{ID: 8863, Type: "story"}
-		json.NewEncoder(w).Encode(item)
+		if err := json.NewEncoder(w).Encode(item); err != nil {
+			t.Fatalf("Failed to encode item: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -342,7 +344,10 @@ func TestResponseBodyReadError(t *testing.T) {
 
 		// Write a valid HTTP response header but we won't write a body,
 		// this will cause the client to get an error when trying to read the body
-		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n"))
+		_, err = conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n"))
+		if err != nil {
+			t.Fatalf("Failed to write response header: %v", err)
+		}
 		conn.Close() // Close the connection before sending all the promised data
 	}))
 	defer server.Close()
