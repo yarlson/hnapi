@@ -1,4 +1,4 @@
-package hnapi_test
+package hnapi
 
 import (
 	"context"
@@ -6,12 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/yarlson/hnapi"
 )
 
 func TestStartUpdates(t *testing.T) {
@@ -66,9 +63,9 @@ func TestStartUpdates(t *testing.T) {
 	defer server.Close()
 
 	// Create client with a short poll interval for testing
-	client := hnapi.NewClient(
-		hnapi.WithBaseURL(server.URL+"/"),
-		hnapi.WithPollInterval(50*time.Millisecond),
+	client := NewClient(
+		WithBaseURL(server.URL+"/"),
+		WithPollInterval(50*time.Millisecond),
 	)
 
 	// Create a context with timeout
@@ -82,7 +79,7 @@ func TestStartUpdates(t *testing.T) {
 	}
 
 	// Collect the received updates
-	var receivedUpdates []hnapi.Updates
+	var receivedUpdates []Updates
 	for updates := range updatesCh {
 		receivedUpdates = append(receivedUpdates, updates)
 	}
@@ -105,7 +102,7 @@ func TestStartUpdates(t *testing.T) {
 		// Ensure we at least have valid content
 		foundMatch := false
 		for _, expectedJSON := range updateResponses {
-			var expected hnapi.Updates
+			var expected Updates
 			err := json.Unmarshal([]byte(expectedJSON), &expected)
 			if err != nil {
 				t.Fatalf("Failed to unmarshal expected response: %v", err)
@@ -142,9 +139,9 @@ func TestStartUpdatesContextCancellation(t *testing.T) {
 	defer server.Close()
 
 	// Create client with a reasonable poll interval
-	client := hnapi.NewClient(
-		hnapi.WithBaseURL(server.URL+"/"),
-		hnapi.WithPollInterval(100*time.Millisecond),
+	client := NewClient(
+		WithBaseURL(server.URL+"/"),
+		WithPollInterval(100*time.Millisecond),
 	)
 
 	// Create a context that can be canceled
@@ -215,9 +212,9 @@ func TestStartUpdatesWithError(t *testing.T) {
 	defer server.Close()
 
 	// Create client with a short poll interval
-	client := hnapi.NewClient(
-		hnapi.WithBaseURL(server.URL+"/"),
-		hnapi.WithPollInterval(50*time.Millisecond),
+	client := NewClient(
+		WithBaseURL(server.URL+"/"),
+		WithPollInterval(50*time.Millisecond),
 	)
 
 	// Create a context
@@ -263,19 +260,18 @@ func TestStartUpdatesWithError(t *testing.T) {
 	}
 }
 
-// TestImmediatePollOnStart tests that polling begins immediately when StartUpdates is called,
-// not just after the first ticker event.
-func TestImmediatePollOnStart(t *testing.T) {
-	// Use a channel to track when requests are received
-	requestReceived := make(chan struct{}, 1)
+func TestStartUpdatesInitialPoll(t *testing.T) {
+	// Create a channel to signal when the first request is made
+	firstRequestMade := make(chan struct{}, 1)
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Signal that a request was received
+		// Signal that a request was made
 		select {
-		case requestReceived <- struct{}{}:
+		case firstRequestMade <- struct{}{}:
+			// Successfully signaled
 		default:
-			// Channel full, ignore
+			// Channel already has a value, which means this is not the first request
 		}
 
 		// Return some updates
@@ -287,13 +283,81 @@ func TestImmediatePollOnStart(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Set a long polling interval to ensure the initial poll is different from ticker-based polls
-	client := hnapi.NewClient(
-		hnapi.WithBaseURL(server.URL+"/"),
-		hnapi.WithPollInterval(5*time.Second), // Very long to avoid ticker firing during test
+	// Create client with a long poll interval to ensure we're only testing the initial poll
+	client := NewClient(
+		WithBaseURL(server.URL+"/"),
+		WithPollInterval(1*time.Hour), // Long interval so ticker won't trigger during test
 	)
 
-	// Create a context
+	// Start updates
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	updatesCh, err := client.StartUpdates(ctx)
+	if err != nil {
+		t.Fatalf("StartUpdates() error = %v", err)
+	}
+
+	// Wait for the first request to be made, with a timeout
+	select {
+	case <-firstRequestMade:
+		// Initial poll request was made immediately
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out waiting for initial poll")
+	}
+
+	// Should receive updates from the initial poll
+	select {
+	case update, ok := <-updatesCh:
+		if !ok {
+			t.Fatal("Updates channel closed unexpectedly")
+		}
+		// Verify the update
+		if len(update.Items) != 2 || len(update.Profiles) != 2 {
+			t.Errorf("Unexpected update content: %+v", update)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out waiting for update from initial poll")
+	}
+
+	// Cancel the context to clean up
+	cancel()
+}
+
+func TestUpdateContextCanceledDuringSend(t *testing.T) {
+	// Use a channel to block the HTTP server from responding until we're ready
+	serverBlockCh := make(chan struct{})
+	serverResponseCh := make(chan struct{})
+
+	// Create a test server that waits for signal before responding
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Signal that a request was received
+		select {
+		case serverResponseCh <- struct{}{}:
+		default:
+			// Channel already has a value
+		}
+
+		// Wait for signal before proceeding (to control timing)
+		<-serverBlockCh
+
+		// Return some updates
+		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte(`{"items": [123, 456], "profiles": ["user1", "user2"]}`))
+		if err != nil {
+			t.Fatalf("Failed to write mock response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	// Create a client with a zero-buffered updates channel
+	// This will force StartUpdates to create a buffered channel
+	client := NewClient(
+		WithBaseURL(server.URL+"/"),
+		WithPollInterval(500*time.Millisecond), // Long enough to not trigger twice during test
+	)
+
+	// Create a context we can cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -303,103 +367,237 @@ func TestImmediatePollOnStart(t *testing.T) {
 		t.Fatalf("StartUpdates() error = %v", err)
 	}
 
-	// Check if a request was received immediately (within a short timeout)
+	// Wait for the server to receive the request
 	select {
-	case <-requestReceived:
-		// Test passed: request was received immediately
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("No immediate poll detected")
+	case <-serverResponseCh:
+		// Request received by server
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out waiting for server to receive request")
 	}
 
-	// Also check that we receive the update through the channel
+	// Now trigger the server to reply with updates
+	close(serverBlockCh)
+
+	// Read an update to confirm everything is working
 	select {
 	case update, ok := <-updatesCh:
 		if !ok {
 			t.Fatal("Updates channel closed unexpectedly")
 		}
+		// Verify the update
 		if len(update.Items) != 2 || len(update.Profiles) != 2 {
 			t.Errorf("Unexpected update content: %+v", update)
 		}
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("Timed out waiting for immediate update")
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out waiting for update")
+	}
+
+	// Now cancel the context - which should stop the polling and close the channel
+	cancel()
+
+	// Give the goroutine time to clean up
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify channel is closed
+	_, channelOpen := <-updatesCh
+	if channelOpen {
+		t.Error("Channel should be closed after context cancellation")
 	}
 }
 
-// TestContextCancellationDuringSend tests the scenario where the context is canceled
-// while trying to send updates through the channel.
-func TestContextCancellationDuringSend(t *testing.T) {
-	// Create a test server that returns updates
+func TestStartUpdatesTickerBased(t *testing.T) {
+	// Counter for requests
+	var requestCount int32
+
+	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Count the request
+		count := atomic.AddInt32(&requestCount, 1)
+
+		// Return different responses based on request count
 		w.WriteHeader(http.StatusOK)
-		_, err := w.Write([]byte(`{"items": [123, 456], "profiles": ["user1", "user2"]}`))
-		if err != nil {
-			t.Fatalf("Failed to write mock response: %v", err)
+		if count == 1 {
+			// First request (initial poll)
+			_, err := w.Write([]byte(`{"items": [123], "profiles": ["user1"]}`))
+			if err != nil {
+				t.Fatalf("Failed to write mock response: %v", err)
+			}
+		} else {
+			// Second request (from ticker)
+			_, err := w.Write([]byte(`{"items": [456], "profiles": ["user2"]}`))
+			if err != nil {
+				t.Fatalf("Failed to write mock response: %v", err)
+			}
 		}
 	}))
 	defer server.Close()
 
-	// Create a context that we can cancel
+	// Create client with a very short poll interval
+	client := NewClient(
+		WithBaseURL(server.URL+"/"),
+		WithPollInterval(50*time.Millisecond), // Very short for testing
+	)
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	// Start updates
+	updatesCh, err := client.StartUpdates(ctx)
+	if err != nil {
+		t.Fatalf("StartUpdates() error = %v", err)
+	}
+
+	// Collect updates until context is canceled
+	var updates []Updates
+	for update := range updatesCh {
+		updates = append(updates, update)
+	}
+
+	// Verify we got at least 2 updates (initial poll and at least one from ticker)
+	if len(updates) < 2 {
+		t.Errorf("Expected at least 2 updates (initial poll and ticker), got %d", len(updates))
+	}
+
+	// Verify the content of the updates
+	foundInitial := false
+	foundTicker := false
+	for _, update := range updates {
+		if len(update.Items) == 1 {
+			if update.Items[0] == 123 && len(update.Profiles) == 1 && update.Profiles[0] == "user1" {
+				foundInitial = true
+			} else if update.Items[0] == 456 && len(update.Profiles) == 1 && update.Profiles[0] == "user2" {
+				foundTicker = true
+			}
+		}
+	}
+
+	if !foundInitial {
+		t.Errorf("Did not receive update from initial poll")
+	}
+	if !foundTicker {
+		t.Errorf("Did not receive update from ticker-based poll")
+	}
+}
+
+func TestStartUpdatesInitialPollError(t *testing.T) {
+	// Track poll attempts to return error only on the first one
+	var pollCount int32
+
+	// Create a test server that returns error on first request
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&pollCount, 1)
+
+		if count == 1 {
+			// First request (initial poll) - return error
+			w.WriteHeader(http.StatusInternalServerError)
+			_, err := w.Write([]byte("Internal Server Error"))
+			if err != nil {
+				t.Fatalf("Failed to write mock response: %v", err)
+			}
+		} else {
+			// Subsequent requests - return success
+			w.WriteHeader(http.StatusOK)
+			_, err := w.Write([]byte(`{"items": [456], "profiles": ["user2"]}`))
+			if err != nil {
+				t.Fatalf("Failed to write mock response: %v", err)
+			}
+		}
+	}))
+	defer server.Close()
+
+	// Create client with a very short poll interval
+	client := NewClient(
+		WithBaseURL(server.URL+"/"),
+		WithPollInterval(50*time.Millisecond), // Very short for testing
+	)
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	// Start updates - this should log an error for the initial poll but continue
+	updatesCh, err := client.StartUpdates(ctx)
+	if err != nil {
+		t.Fatalf("StartUpdates() error = %v", err)
+	}
+
+	// Despite the initial error, we should get updates from the next poll
+	// that happens after the ticker fires
+	var update Updates
+	var ok bool
+	select {
+	case update, ok = <-updatesCh:
+		if !ok {
+			t.Fatal("Updates channel closed unexpectedly")
+		}
+	case <-time.After(150 * time.Millisecond):
+		t.Fatal("Timed out waiting for update from subsequent poll")
+	}
+
+	// Verify the update is from the second poll
+	if len(update.Items) != 1 || update.Items[0] != 456 {
+		t.Errorf("Unexpected update content: %+v", update)
+	}
+
+	// Verify we made at least 2 poll attempts
+	if atomic.LoadInt32(&pollCount) < 2 {
+		t.Errorf("Expected at least 2 poll attempts, got %d", pollCount)
+	}
+
+	// Cleanup
+	cancel()
+
+	// Give the goroutine time to clean up
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify channel is closed after context cancellation
+	_, ok = <-updatesCh
+	if ok {
+		t.Error("Channel should be closed after context cancellation")
+	}
+}
+
+func TestCancelDuringUpdateFetch(t *testing.T) {
+	// Create a test server that blocks until request context is canceled
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Wait for the request context to be cancelled
+		<-r.Context().Done()
+
+		// Just in case, still write something, though it shouldn't be used
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"items": [123], "profiles": ["user1"]}`))
+	}))
+	defer server.Close()
+
+	// Create a client with a long poll interval
+	client := NewClient(
+		WithBaseURL(server.URL+"/"),
+		WithPollInterval(1*time.Hour), // Long interval so ticker won't trigger during test
+	)
+
+	// Create a context that we'll cancel shortly
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// We don't directly use the client in this test, it's a simulation of the internal behavior
-	// of pollUpdates with context cancellation
+	// Start updates
+	updatesCh, err := client.StartUpdates(ctx)
+	if err != nil {
+		t.Fatalf("StartUpdates() error = %v", err)
+	}
 
-	// Use a sync.WaitGroup to coordinate test teardown
-	var wg sync.WaitGroup
-	wg.Add(1)
+	// Wait a bit to ensure the initial poll request is made
+	time.Sleep(50 * time.Millisecond)
 
-	// This variable will be set to true if the context cancellation is detected
-	var contextCancellationDetected bool
+	// Cancel the context - this should cancel the HTTP request in progress
+	cancel()
 
-	// Mock the channel creation and context cancellation scenario
-	// We'll use a separate goroutine to simulate the StartUpdates behavior
-	go func() {
-		defer wg.Done()
-
-		// Create an unbuffered channel to force blocking on send
-		mockUpdatesCh := make(chan hnapi.Updates)
-
-		// Start a goroutine to create the blocking situation
-		// This simulates a slow consumer that doesn't read from the channel
-		go func() {
-			// Sleep to ensure the poll operation proceeds and tries to send
-			time.Sleep(100 * time.Millisecond)
-
-			// Cancel the context while send is blocked
-			cancel()
-
-			// Wait a bit more and then read from the channel to unblock send
-			// (but the send should already have returned due to context cancellation)
-			time.Sleep(100 * time.Millisecond)
-			select {
-			case <-mockUpdatesCh:
-				// Drain the channel
-			default:
-				// Channel might be empty
-			}
-		}()
-
-		// Create updates to send
-		updates := hnapi.Updates{
-			Items:    []int{123, 456},
-			Profiles: []string{"user1", "user2"},
+	// Wait for the updates channel to be closed
+	select {
+	case _, stillOpen := <-updatesCh:
+		if stillOpen {
+			t.Fatal("Expected updates channel to be closed after context cancellation")
 		}
-
-		// Try to send updates with context cancellation
-		select {
-		case mockUpdatesCh <- updates:
-			// Successfully sent
-		case <-ctx.Done():
-			// Context was canceled while trying to send
-			contextCancellationDetected = true
-		}
-	}()
-
-	// Wait for the test to complete
-	wg.Wait()
-
-	// Verify that context cancellation was detected
-	if !contextCancellationDetected {
-		t.Fatal("Context cancellation was not detected during send operation")
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out while waiting for channel to close")
 	}
 }

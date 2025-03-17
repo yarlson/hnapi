@@ -1,15 +1,13 @@
-package hnapi_test
+package hnapi
 
 import (
 	"net/http"
 	"testing"
 	"time"
-
-	"github.com/yarlson/hnapi"
 )
 
 func TestDefaultConfig(t *testing.T) {
-	config := hnapi.DefaultConfig()
+	config := DefaultConfig()
 
 	if config.BaseURL != "https://hacker-news.firebaseio.com/v0/" {
 		t.Errorf("Expected BaseURL to be %q, got %q", "https://hacker-news.firebaseio.com/v0/", config.BaseURL)
@@ -49,14 +47,14 @@ func TestConfigWithOptions(t *testing.T) {
 	customConcurrency := 20
 	customClient := &http.Client{Timeout: 30 * time.Second}
 
-	client := hnapi.NewClient(
-		hnapi.WithBaseURL(customURL),
-		hnapi.WithRequestTimeout(customTimeout),
-		hnapi.WithMaxRetries(customRetries),
-		hnapi.WithBackoffInterval(customBackoff),
-		hnapi.WithPollInterval(customPollInterval),
-		hnapi.WithConcurrency(customConcurrency),
-		hnapi.WithHTTPClient(customClient),
+	client := NewClient(
+		WithBaseURL(customURL),
+		WithRequestTimeout(customTimeout),
+		WithMaxRetries(customRetries),
+		WithBackoffInterval(customBackoff),
+		WithPollInterval(customPollInterval),
+		WithConcurrency(customConcurrency),
+		WithHTTPClient(customClient),
 	)
 
 	config := client.Config
@@ -96,9 +94,9 @@ func TestPartialOptions(t *testing.T) {
 	customTimeout := 7 * time.Second
 	customConcurrency := 15
 
-	client := hnapi.NewClient(
-		hnapi.WithRequestTimeout(customTimeout),
-		hnapi.WithConcurrency(customConcurrency),
+	client := NewClient(
+		WithRequestTimeout(customTimeout),
+		WithConcurrency(customConcurrency),
 	)
 
 	config := client.Config
@@ -113,7 +111,7 @@ func TestPartialOptions(t *testing.T) {
 	}
 
 	// Verify that unspecified options retain their default values
-	defaultConfig := hnapi.DefaultConfig()
+	defaultConfig := DefaultConfig()
 
 	if config.BaseURL != defaultConfig.BaseURL {
 		t.Errorf("Expected BaseURL to be default %q, got %q", defaultConfig.BaseURL, config.BaseURL)

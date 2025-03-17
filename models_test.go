@@ -1,11 +1,9 @@
-package hnapi_test
+package hnapi
 
 import (
 	"encoding/json"
 	"reflect"
 	"testing"
-
-	"github.com/yarlson/hnapi"
 )
 
 func TestItemUnmarshal(t *testing.T) {
@@ -22,7 +20,7 @@ func TestItemUnmarshal(t *testing.T) {
 		"url": "http://www.getdropbox.com/u/2/screencast.html"
 	}`
 
-	var story hnapi.Item
+	var story Item
 	err := json.Unmarshal([]byte(storyJSON), &story)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal story JSON: %v", err)
@@ -68,7 +66,7 @@ func TestItemUnmarshal(t *testing.T) {
 		"type": "comment"
 	}`
 
-	var comment hnapi.Item
+	var comment Item
 	err = json.Unmarshal([]byte(commentJSON), &comment)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal comment JSON: %v", err)
@@ -102,7 +100,7 @@ func TestUserUnmarshal(t *testing.T) {
 		"submitted": [8265435, 8168423, 8090946]
 	}`
 
-	var user hnapi.User
+	var user User
 	err := json.Unmarshal([]byte(userJSON), &user)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal user JSON: %v", err)
@@ -135,7 +133,7 @@ func TestUpdatesUnmarshal(t *testing.T) {
 		"profiles": ["thefox", "mdda", "plinkplonk"]
 	}`
 
-	var updates hnapi.Updates
+	var updates Updates
 	err := json.Unmarshal([]byte(updatesJSON), &updates)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal updates JSON: %v", err)

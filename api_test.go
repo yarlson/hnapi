@@ -1,4 +1,4 @@
-package hnapi_test
+package hnapi
 
 import (
 	"context"
@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/yarlson/hnapi"
 )
 
 // BrokenReader is an io.ReadCloser that always returns an error when reading
@@ -42,7 +40,7 @@ func TestGetItem(t *testing.T) {
 		mockResponse   string
 		mockStatusCode int
 		wantErr        bool
-		validateItem   func(*testing.T, *hnapi.Item)
+		validateItem   func(*testing.T, *Item)
 	}{
 		{
 			name:           "valid story item",
@@ -60,7 +58,7 @@ func TestGetItem(t *testing.T) {
 				"url": "http://www.getdropbox.com/u/2/screencast.html"
 			}`,
 			wantErr: false,
-			validateItem: func(t *testing.T, item *hnapi.Item) {
+			validateItem: func(t *testing.T, item *Item) {
 				if item.ID != 8863 {
 					t.Errorf("Expected ID to be 8863, got %d", item.ID)
 				}
@@ -126,7 +124,7 @@ func TestGetItem(t *testing.T) {
 			defer server.Close()
 
 			// Create client with the test server URL
-			client := hnapi.NewClient(hnapi.WithBaseURL(server.URL + "/"))
+			client := NewClient(WithBaseURL(server.URL + "/"))
 
 			// Call GetItem
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -156,7 +154,7 @@ func TestGetUser(t *testing.T) {
 		mockResponse   string
 		mockStatusCode int
 		wantErr        bool
-		validateUser   func(*testing.T, *hnapi.User)
+		validateUser   func(*testing.T, *User)
 	}{
 		{
 			name:           "valid user",
@@ -170,7 +168,7 @@ func TestGetUser(t *testing.T) {
 				"submitted": [8265435, 8168423, 8090946]
 			}`,
 			wantErr: false,
-			validateUser: func(t *testing.T, user *hnapi.User) {
+			validateUser: func(t *testing.T, user *User) {
 				if user.ID != "jl" {
 					t.Errorf("Expected ID to be 'jl', got %q", user.ID)
 				}
@@ -228,7 +226,7 @@ func TestGetUser(t *testing.T) {
 			defer server.Close()
 
 			// Create client with the test server URL
-			client := hnapi.NewClient(hnapi.WithBaseURL(server.URL + "/"))
+			client := NewClient(WithBaseURL(server.URL + "/"))
 
 			// Call GetUser
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -256,7 +254,7 @@ func TestContextCancellation(t *testing.T) {
 		// Delay the response
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
-		item := &hnapi.Item{ID: 8863, Type: "story"}
+		item := &Item{ID: 8863, Type: "story"}
 		if err := json.NewEncoder(w).Encode(item); err != nil {
 			t.Fatalf("Failed to encode item: %v", err)
 		}
@@ -264,7 +262,7 @@ func TestContextCancellation(t *testing.T) {
 	defer server.Close()
 
 	// Create client with the test server URL
-	client := hnapi.NewClient(hnapi.WithBaseURL(server.URL + "/"))
+	client := NewClient(WithBaseURL(server.URL + "/"))
 
 	// Create a context that will be canceled immediately
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -282,7 +280,7 @@ func TestContextCancellation(t *testing.T) {
 // TestRequestCreationError tests the error case when request creation fails
 func TestRequestCreationError(t *testing.T) {
 	// Create a client with an invalid URL that will cause request creation to fail
-	client := hnapi.NewClient(hnapi.WithBaseURL("http://[::1]:namedport/")) // Invalid URL (bad port)
+	client := NewClient(WithBaseURL("http://[::1]:namedport/")) // Invalid URL (bad port)
 
 	// Try to get an item
 	ctx := context.Background()
@@ -307,9 +305,9 @@ func TestHTTPClientError(t *testing.T) {
 	}
 
 	// Create a client with our custom HTTP client
-	client := hnapi.NewClient(
-		hnapi.WithBaseURL("https://example.com/"),
-		hnapi.WithHTTPClient(errorClient),
+	client := NewClient(
+		WithBaseURL("https://example.com/"),
+		WithHTTPClient(errorClient),
 	)
 
 	// Try to get an item
@@ -353,7 +351,7 @@ func TestResponseBodyReadError(t *testing.T) {
 	defer server.Close()
 
 	// Create client with the test server URL
-	client := hnapi.NewClient(hnapi.WithBaseURL(server.URL + "/"))
+	client := NewClient(WithBaseURL(server.URL + "/"))
 
 	// Try to get an item
 	ctx := context.Background()

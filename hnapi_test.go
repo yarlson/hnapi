@@ -1,14 +1,12 @@
-package hnapi_test
+package hnapi
 
 import (
 	"testing"
-
-	"github.com/yarlson/hnapi"
 )
 
 func TestHelloHackerNews(t *testing.T) {
 	expected := "Hello, Hacker News API"
-	actual := hnapi.HelloHackerNews()
+	actual := HelloHackerNews()
 
 	if actual != expected {
 		t.Errorf("HelloHackerNews() = %q, want %q", actual, expected)

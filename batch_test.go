@@ -1,4 +1,4 @@
-package hnapi_test
+package hnapi
 
 import (
 	"context"
@@ -11,8 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/yarlson/hnapi"
 )
 
 func TestGetItemsBatch(t *testing.T) {
@@ -181,9 +179,9 @@ func TestGetItemsBatch(t *testing.T) {
 			defer server.Close()
 
 			// Create client with custom concurrency limit
-			client := hnapi.NewClient(
-				hnapi.WithBaseURL(server.URL+"/"),
-				hnapi.WithConcurrency(tt.concurrency),
+			client := NewClient(
+				WithBaseURL(server.URL+"/"),
+				WithConcurrency(tt.concurrency),
 			)
 
 			// Call GetItemsBatch
@@ -241,9 +239,9 @@ func TestGetItemsBatchWithContext(t *testing.T) {
 	defer server.Close()
 
 	// Create client
-	client := hnapi.NewClient(
-		hnapi.WithBaseURL(server.URL+"/"),
-		hnapi.WithConcurrency(5),
+	client := NewClient(
+		WithBaseURL(server.URL+"/"),
+		WithConcurrency(5),
 	)
 
 	// Create a context that will be canceled quickly

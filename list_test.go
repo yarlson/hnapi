@@ -1,4 +1,4 @@
-package hnapi_test
+package hnapi
 
 import (
 	"context"
@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/yarlson/hnapi"
 )
 
 func TestGetStories(t *testing.T) {
@@ -22,7 +20,7 @@ func TestGetStories(t *testing.T) {
 		mockStatusCode     int
 		wantErr            bool
 		expectedStoryCount int
-		clientMethod       func(*hnapi.Client, context.Context) ([]int, error)
+		clientMethod       func(*Client, context.Context) ([]int, error)
 	}{
 		{
 			name:               "TopStories",
@@ -31,7 +29,7 @@ func TestGetStories(t *testing.T) {
 			mockStatusCode:     http.StatusOK,
 			wantErr:            false,
 			expectedStoryCount: 5,
-			clientMethod:       func(c *hnapi.Client, ctx context.Context) ([]int, error) { return c.GetTopStories(ctx) },
+			clientMethod:       func(c *Client, ctx context.Context) ([]int, error) { return c.GetTopStories(ctx) },
 		},
 		{
 			name:               "NewStories",
@@ -40,7 +38,7 @@ func TestGetStories(t *testing.T) {
 			mockStatusCode:     http.StatusOK,
 			wantErr:            false,
 			expectedStoryCount: 4,
-			clientMethod:       func(c *hnapi.Client, ctx context.Context) ([]int, error) { return c.GetNewStories(ctx) },
+			clientMethod:       func(c *Client, ctx context.Context) ([]int, error) { return c.GetNewStories(ctx) },
 		},
 		{
 			name:               "BestStories",
@@ -49,7 +47,7 @@ func TestGetStories(t *testing.T) {
 			mockStatusCode:     http.StatusOK,
 			wantErr:            false,
 			expectedStoryCount: 3,
-			clientMethod:       func(c *hnapi.Client, ctx context.Context) ([]int, error) { return c.GetBestStories(ctx) },
+			clientMethod:       func(c *Client, ctx context.Context) ([]int, error) { return c.GetBestStories(ctx) },
 		},
 		{
 			name:               "AskStories",
@@ -58,7 +56,7 @@ func TestGetStories(t *testing.T) {
 			mockStatusCode:     http.StatusOK,
 			wantErr:            false,
 			expectedStoryCount: 2,
-			clientMethod:       func(c *hnapi.Client, ctx context.Context) ([]int, error) { return c.GetAskStories(ctx) },
+			clientMethod:       func(c *Client, ctx context.Context) ([]int, error) { return c.GetAskStories(ctx) },
 		},
 		{
 			name:               "ShowStories",
@@ -67,7 +65,7 @@ func TestGetStories(t *testing.T) {
 			mockStatusCode:     http.StatusOK,
 			wantErr:            false,
 			expectedStoryCount: 4,
-			clientMethod:       func(c *hnapi.Client, ctx context.Context) ([]int, error) { return c.GetShowStories(ctx) },
+			clientMethod:       func(c *Client, ctx context.Context) ([]int, error) { return c.GetShowStories(ctx) },
 		},
 		{
 			name:               "JobStories",
@@ -76,7 +74,7 @@ func TestGetStories(t *testing.T) {
 			mockStatusCode:     http.StatusOK,
 			wantErr:            false,
 			expectedStoryCount: 2,
-			clientMethod:       func(c *hnapi.Client, ctx context.Context) ([]int, error) { return c.GetJobStories(ctx) },
+			clientMethod:       func(c *Client, ctx context.Context) ([]int, error) { return c.GetJobStories(ctx) },
 		},
 		{
 			name:               "EmptyList",
@@ -85,7 +83,7 @@ func TestGetStories(t *testing.T) {
 			mockStatusCode:     http.StatusOK,
 			wantErr:            false,
 			expectedStoryCount: 0,
-			clientMethod:       func(c *hnapi.Client, ctx context.Context) ([]int, error) { return c.GetTopStories(ctx) },
+			clientMethod:       func(c *Client, ctx context.Context) ([]int, error) { return c.GetTopStories(ctx) },
 		},
 		{
 			name:               "ServerError",
@@ -94,7 +92,7 @@ func TestGetStories(t *testing.T) {
 			mockStatusCode:     http.StatusInternalServerError,
 			wantErr:            true,
 			expectedStoryCount: 0,
-			clientMethod:       func(c *hnapi.Client, ctx context.Context) ([]int, error) { return c.GetTopStories(ctx) },
+			clientMethod:       func(c *Client, ctx context.Context) ([]int, error) { return c.GetTopStories(ctx) },
 		},
 		{
 			name:               "InvalidJSON",
@@ -103,7 +101,7 @@ func TestGetStories(t *testing.T) {
 			mockStatusCode:     http.StatusOK,
 			wantErr:            true,
 			expectedStoryCount: 0,
-			clientMethod:       func(c *hnapi.Client, ctx context.Context) ([]int, error) { return c.GetTopStories(ctx) },
+			clientMethod:       func(c *Client, ctx context.Context) ([]int, error) { return c.GetTopStories(ctx) },
 		},
 	}
 
@@ -126,7 +124,7 @@ func TestGetStories(t *testing.T) {
 			defer server.Close()
 
 			// Create client with the test server URL
-			client := hnapi.NewClient(hnapi.WithBaseURL(server.URL + "/"))
+			client := NewClient(WithBaseURL(server.URL + "/"))
 
 			// Set up context
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
