@@ -108,6 +108,53 @@ for updates := range updatesCh {
 }
 ```
 
+## Configuration Options
+
+The client can be customized with various options:
+
+| Option | Function | Description |
+|--------|----------|-------------|
+| Base URL | `WithBaseURL(url string)` | Sets a custom base URL for the API |
+| Request Timeout | `WithRequestTimeout(duration time.Duration)` | Sets the timeout for HTTP requests |
+| Max Retries | `WithMaxRetries(retries int)` | Sets the maximum number of retries for failed requests |
+| Backoff Interval | `WithBackoffInterval(duration time.Duration)` | Sets the time to wait between retries |
+| Poll Interval | `WithPollInterval(duration time.Duration)` | Sets the interval for polling updates |
+| Concurrency | `WithConcurrency(concurrency int)` | Sets the limit for concurrent requests in batch operations |
+| HTTP Client | `WithHTTPClient(client *http.Client)` | Sets a custom HTTP client |
+
+## Examples
+
+Check out the [examples](./examples) directory for complete example applications that demonstrate using the SDK in realistic scenarios.
+
+The main example application shows how to:
+- Initialize the client with custom options
+- Fetch stories and user profiles
+- Perform batch retrieval
+- Process real-time updates with proper error handling
+- Gracefully shut down using context cancellation
+
+Run the example with:
+
+```bash
+go run examples/main.go
+```
+
+## Integration Testing
+
+The SDK includes an integration test that validates all the components working together. Run it with:
+
+```bash
+go test -v -run TestIntegration
+```
+
+This integration test validates that:
+- The client can be initialized with custom options
+- Single items and user profiles can be fetched
+- Lists of stories can be retrieved
+- Batch retrieval works with the configured concurrency
+- Real-time updates are properly streamed through channels
+- Context cancellation correctly stops all operations
+
 ## License
 
 MIT
