@@ -3,6 +3,7 @@ package hnapi_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,26 @@ import (
 
 	"github.com/yarlson/hnapi"
 )
+
+// BrokenReader is an io.ReadCloser that always returns an error when reading
+type BrokenReader struct{}
+
+func (br *BrokenReader) Read(p []byte) (n int, err error) {
+	return 0, errors.New("simulated read error")
+}
+
+func (br *BrokenReader) Close() error {
+	return nil
+}
+
+// Custom RoundTripper to simulate network/HTTP client errors
+type ErrorRoundTripper struct {
+	Err error
+}
+
+func (ert *ErrorRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, ert.Err
+}
 
 func TestGetItem(t *testing.T) {
 	// Set up test cases
@@ -253,5 +274,88 @@ func TestContextCancellation(t *testing.T) {
 	// Expect a context deadline exceeded error
 	if err == nil {
 		t.Errorf("Expected error due to context cancellation, got nil")
+	}
+}
+
+// TestRequestCreationError tests the error case when request creation fails
+func TestRequestCreationError(t *testing.T) {
+	// Create a client with an invalid URL that will cause request creation to fail
+	client := hnapi.NewClient(hnapi.WithBaseURL("http://[::1]:namedport/")) // Invalid URL (bad port)
+
+	// Try to get an item
+	ctx := context.Background()
+	_, err := client.GetItem(ctx, 8863)
+
+	// Expect an error from request creation
+	if err == nil {
+		t.Errorf("Expected error from request creation, got nil")
+	}
+
+	// Check that the error message contains "failed to create request"
+	if !strings.Contains(err.Error(), "failed to create request") {
+		t.Errorf("Expected error message to contain 'failed to create request', got: %v", err)
+	}
+}
+
+// TestHTTPClientError tests the error case when the HTTP client fails to execute the request
+func TestHTTPClientError(t *testing.T) {
+	// Create a custom HTTP client that always returns an error
+	errorClient := &http.Client{
+		Transport: &ErrorRoundTripper{Err: errors.New("simulated network error")},
+	}
+
+	// Create a client with our custom HTTP client
+	client := hnapi.NewClient(
+		hnapi.WithBaseURL("https://example.com/"),
+		hnapi.WithHTTPClient(errorClient),
+	)
+
+	// Try to get an item
+	ctx := context.Background()
+	_, err := client.GetItem(ctx, 8863)
+
+	// Expect an error from the HTTP client
+	if err == nil {
+		t.Errorf("Expected error from HTTP client, got nil")
+	}
+
+	// Check that the error message contains "failed to execute request"
+	if !strings.Contains(err.Error(), "failed to execute request") {
+		t.Errorf("Expected error message to contain 'failed to execute request', got: %v", err)
+	}
+}
+
+// TestResponseBodyReadError tests the error case when reading the response body fails
+func TestResponseBodyReadError(t *testing.T) {
+	// Create a test server that returns a response with a broken body reader
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Hijack the connection to return a custom response
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatalf("httptest.ResponseRecorder does not implement http.Hijacker")
+		}
+
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			t.Fatalf("Failed to hijack connection: %v", err)
+		}
+
+		// Write a valid HTTP response header but we won't write a body,
+		// this will cause the client to get an error when trying to read the body
+		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n"))
+		conn.Close() // Close the connection before sending all the promised data
+	}))
+	defer server.Close()
+
+	// Create client with the test server URL
+	client := hnapi.NewClient(hnapi.WithBaseURL(server.URL + "/"))
+
+	// Try to get an item
+	ctx := context.Background()
+	_, err := client.GetItem(ctx, 8863)
+
+	// Expect a read error
+	if err == nil {
+		t.Errorf("Expected error from response body read, got nil")
 	}
 }
