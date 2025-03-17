@@ -1,164 +1,135 @@
-# Hacker News API SDK for Go
+# hnapi
 
-A complete Go SDK for interacting with the [Hacker News API](https://github.com/HackerNews/API) (powered by Firebase).
+[![GoDoc](https://godoc.org/github.com/yarlson/hnapi?status.svg)](https://godoc.org/github.com/yarlson/hnapi)
+[![Build Status](https://travis-ci.org/yarlson/hnapi.svg?branch=master)](https://travis-ci.org/yarlson/hnapi)
 
-## Overview
+**hnapi** is a Go SDK for interacting with the [Hacker News API](https://github.com/HackerNews/API). It provides an easy-to-use interface to retrieve stories, comments, jobs, polls, and user profiles. The package also offers helper functions for batch retrieval and a real-time updates mechanism using Go channels.
 
-This SDK provides a comprehensive interface to the Hacker News API, including support for:
+## Features
 
-- Stories, comments, jobs, Ask HNs, Show HNs, and polls
-- User profiles
-- Real-time updates via Go channels
-- Batch retrieval with concurrent requests
+- **Complete Coverage:** Fetch items (stories, comments, jobs, polls, etc.), user profiles, and lists (top, new, best, Ask, Show, Job).
+- **Strongly Typed:** JSON responses are automatically parsed into Go structs.
+- **Batch Retrieval:** Efficiently fetch multiple items concurrently with a configurable concurrency limit.
+- **Real-Time Updates:** Subscribe to updates from the `/v0/updates` endpoint via a channel-based API.
+- **Configurable & Extensible:** Customize timeouts, base URL, retry strategies, polling intervals, concurrency limits, and even inject a custom `http.Client`.
+- **Context-Aware:** All methods accept `context.Context` for cancellation and deadlines.
 
 ## Installation
+
+To install **hnapi**, run:
 
 ```bash
 go get github.com/yarlson/hnapi
 ```
 
-## Usage
-
-### Initializing the Client
+Then, import it in your project:
 
 ```go
 import "github.com/yarlson/hnapi"
+```
 
-// Use default configuration
-client := hnapi.NewClient()
+## Quick Start
 
-// Or customize with options
-client := hnapi.NewClient(
-    hnapi.WithRequestTimeout(5 * time.Second),
-    hnapi.WithConcurrency(20),
+Below is a simple example to get you started:
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/yarlson/hnapi"
 )
-```
 
-### Retrieving Items
+func main() {
+	// Initialize the client with custom options if needed
+	client := hnapi.NewClient(
+		hnapi.WithRequestTimeout(15*time.Second),
+		hnapi.WithConcurrency(5),
+		hnapi.WithPollInterval(30*time.Second), // Default is 30 seconds
+	)
 
-```go
-// Get a story, comment, or other item by ID
-item, err := client.GetItem(context.Background(), 8863)
-if err != nil {
-    // Handle error
-}
-fmt.Printf("Story: %s by %s\n", item.Title, item.By)
-```
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
-### Retrieving User Profiles
+	// Fetch top stories
+	topStories, err := client.GetTopStories(ctx)
+	if err != nil {
+		log.Fatalf("Error fetching top stories: %v", err)
+	}
+	fmt.Printf("Top Stories: %v\n", topStories)
 
-```go
-user, err := client.GetUser(context.Background(), "pg")
-if err != nil {
-    // Handle error
-}
-fmt.Printf("User: %s, Karma: %d\n", user.ID, user.Karma)
-```
+	// Fetch an individual item
+	if len(topStories) > 0 {
+		item, err := client.GetItem(ctx, topStories[0])
+		if err != nil {
+			log.Fatalf("Error fetching item: %v", err)
+		}
+		fmt.Printf("Item Details:\n Title: %s\n By: %s\n Score: %d\n", item.Title, item.By, item.Score)
+	}
 
-### Getting Lists of Stories
+	// Start real-time updates
+	updatesCh, err := client.StartUpdates(ctx)
+	if err != nil {
+		log.Fatalf("Error starting updates: %v", err)
+	}
 
-```go
-// Get top stories
-topStories, err := client.GetTopStories(context.Background())
-if err != nil {
-    // Handle error
-}
+	// Process updates for a short time
+	go func() {
+		for update := range updatesCh {
+			fmt.Printf("Updates: %d items, %d profiles changed\n", len(update.Items), len(update.Profiles))
+		}
+	}()
 
-// Similar functions exist for:
-// - GetNewStories()
-// - GetBestStories()
-// - GetAskStories()
-// - GetShowStories()
-// - GetJobStories()
-```
-
-### Batch Retrieval
-
-```go
-// Get multiple items concurrently
-items, err := client.GetItemsBatch(context.Background(), []int{8863, 8864, 8865})
-if err != nil {
-    // Handle error
-}
-for _, item := range items {
-    fmt.Printf("Item %d: %s\n", item.ID, item.Title)
-}
-```
-
-### Real-time Updates
-
-```go
-// Start receiving updates
-ctx, cancel := context.WithCancel(context.Background())
-defer cancel() // Ensure the update stream is stopped when done
-
-updatesCh, err := client.StartUpdates(ctx)
-if err != nil {
-    // Handle error
-}
-
-// Process updates as they arrive
-for updates := range updatesCh {
-    for _, itemID := range updates.Items {
-        // Process updated items
-    }
-    for _, userID := range updates.Profiles {
-        // Process updated user profiles
-    }
+	// Wait to observe some updates (or press Ctrl+C to cancel)
+	time.Sleep(1 * time.Minute)
 }
 ```
 
 ## Configuration Options
 
-The client can be customized with various options:
+**hnapi** uses the "with options" pattern. You can customize the client by providing various options:
 
-| Option | Function | Description |
-|--------|----------|-------------|
-| Base URL | `WithBaseURL(url string)` | Sets a custom base URL for the API |
-| Request Timeout | `WithRequestTimeout(duration time.Duration)` | Sets the timeout for HTTP requests |
-| Max Retries | `WithMaxRetries(retries int)` | Sets the maximum number of retries for failed requests |
-| Backoff Interval | `WithBackoffInterval(duration time.Duration)` | Sets the time to wait between retries |
-| Poll Interval | `WithPollInterval(duration time.Duration)` | Sets the interval for polling updates |
-| Concurrency | `WithConcurrency(concurrency int)` | Sets the limit for concurrent requests in batch operations |
-| HTTP Client | `WithHTTPClient(client *http.Client)` | Sets a custom HTTP client |
+- **WithBaseURL(url string):** Set a custom base URL. (Default: `https://hacker-news.firebaseio.com/v0/`)
+- **WithRequestTimeout(timeout time.Duration):** Set the request timeout. (Default: 10 seconds)
+- **WithMaxRetries(retries int):** Set the maximum number of retries for failed requests. (Default: 3)
+- **WithBackoffInterval(interval time.Duration):** Set the backoff interval between retries. (Default: 2 seconds)
+- **WithPollInterval(interval time.Duration):** Set the polling interval for real-time updates. (Default: 30 seconds)
+- **WithConcurrency(concurrency int):** Set the concurrency limit for batch retrieval. (Default: 10)
+- **WithHTTPClient(client *http.Client):** Inject a custom HTTP client for advanced use cases.
 
-## Examples
+Example:
 
-Check out the [examples](./examples) directory for complete example applications that demonstrate using the SDK in realistic scenarios.
-
-The main example application shows how to:
-- Initialize the client with custom options
-- Fetch stories and user profiles
-- Perform batch retrieval
-- Process real-time updates with proper error handling
-- Gracefully shut down using context cancellation
-
-Run the example with:
-
-```bash
-go run examples/main.go
+```go
+client := hnapi.NewClient(
+	hnapi.WithBaseURL("https://custom-api.example.com/"),
+	hnapi.WithRequestTimeout(15*time.Second),
+	hnapi.WithConcurrency(5),
+)
 ```
 
-## Integration Testing
+## Testing
 
-The SDK includes an integration test that validates all the components working together. Run it with:
+The **hnapi** package is fully tested with unit and integration tests. To run tests, simply execute:
 
 ```bash
-go test -v -run TestIntegration
+go test -v ./...
 ```
 
-This integration test validates that:
-- The client can be initialized with custom options
-- Single items and user profiles can be fetched
-- Lists of stories can be retrieved
-- Batch retrieval works with the configured concurrency
-- Real-time updates are properly streamed through channels
-- Context cancellation correctly stops all operations
+For integration tests that make real API calls, consider running them in an environment where such calls are allowed, or skip them with `-short`.
 
-## License
+## Documentation
 
-MIT
+Full documentation is available via [GoDoc](https://godoc.org/github.com/yarlson/hnapi). Inline comments and examples are provided to ensure a smooth development experience.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request. 
+Contributions are welcome! Please open issues or submit pull requests on [GitHub](https://github.com/yarlson/hnapi).
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

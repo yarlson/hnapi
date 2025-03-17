@@ -15,6 +15,7 @@ import (
 func main() {
 	fmt.Println("Hacker News API Example")
 	fmt.Println("======================")
+	fmt.Println("Press Ctrl+C at any time to exit")
 
 	// Initialize client with custom options
 	client := hnapi.NewClient(
@@ -28,12 +29,17 @@ func main() {
 	defer cancel()
 
 	// Set up signal handling for graceful shutdown
+	// This channel will be closed when the program should exit
+	done := make(chan struct{})
+
+	// Improved signal handling with a separate goroutine
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		<-sigChan
-		fmt.Println("\nReceived shutdown signal, terminating...")
-		cancel()
+		sig := <-sigChan
+		fmt.Printf("\n\nReceived signal %v, terminating...\n", sig)
+		cancel()    // Cancel the context
+		close(done) // Signal that we should exit
 	}()
 
 	// Step 1: Fetch top stories
@@ -97,12 +103,18 @@ func main() {
 	}
 
 	updateCount := 0
-	for {
+	updateTicker := time.NewTicker(100 * time.Millisecond) // Fast ticker to ensure responsiveness
+	defer updateTicker.Stop()
+
+	// Main processing loop with improved termination handling
+	running := true
+	for running {
 		select {
 		case update, ok := <-updatesCh:
 			if !ok {
 				fmt.Println("Updates channel closed")
-				return
+				running = false
+				break
 			}
 			updateCount++
 			fmt.Printf("Update %d: %d items, %d profiles changed\n",
@@ -121,8 +133,25 @@ func main() {
 			}
 
 		case <-ctx.Done():
-			fmt.Printf("\nReceived %d updates before exiting\n", updateCount)
-			return
+			fmt.Printf("\nContext canceled, stopping updates\n")
+			running = false
+			break
+
+		case <-done:
+			// Exit signal received
+			fmt.Printf("\nExiting after receiving %d updates\n", updateCount)
+			running = false
+			break
+
+		case <-updateTicker.C:
+			// This case ensures we check for termination regularly
+			// even if no updates are coming in
+			if ctx.Err() != nil {
+				running = false
+				break
+			}
 		}
 	}
+
+	fmt.Println("Example application terminated gracefully")
 }
